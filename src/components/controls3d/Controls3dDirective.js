@@ -57,6 +57,7 @@ goog.require('ga_map_service');
         });
 
         scope.onkey = function(event) {
+
           if (isElementEditable(event.target)) {
             return;
           }
