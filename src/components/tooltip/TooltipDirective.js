@@ -57,6 +57,7 @@ goog.require('ga_topic_service');
           var layersToQuery = {
             bodLayers: [],
             vectorLayers: [],
+            vectorTileLayers: [],
             wmsLayers: []
           };
           map.getLayers().forEach(function(l) {
@@ -65,7 +66,9 @@ goog.require('ga_topic_service');
             }
 
             if (gaLayers.hasTooltipBodLayer(l)) {
-              if (gaMapUtils.isVectorLayer(l)) {
+              if (gaMapUtils.isVectorTileLayer(l)) {
+                layersToQuery.vectorTileLayers.push(l);
+              } else if (gaMapUtils.isVectorLayer(l)) {
                 layersToQuery.vectorLayers.push(l);
               } else {
                 layersToQuery.bodLayers.push(l);
@@ -82,6 +85,10 @@ goog.require('ga_topic_service');
           return feature && feature.get('name') || feature.get('description');
         };
 
+        var isTiledFeatureQueryable = function(feature) {
+          return feature && Object.keys(feature.getProperties()).length > 0;
+        };
+
         // Find the first feature from a vector layer
         var findVectorFeature = function(map, pixel, vectorLayer) {
           var featureFound;
@@ -90,7 +97,8 @@ goog.require('ga_topic_service');
             // onclick
             if (layer) {
               if (!vectorLayer || vectorLayer == layer) {
-                if (!featureFound && isFeatureQueryable(feature)) {
+                if (!featureFound && (isFeatureQueryable(feature) ||
+                    isTiledFeatureQueryable(feature))) {
                   featureFound = feature;
                 }
               }
@@ -364,10 +372,16 @@ goog.require('ga_topic_service');
               } else {
                 // Go through queryable vector layers
                 // Launch no requests.
-                layersToQuery.vectorLayers.forEach(function(layerToQuery) {
-                  var feature = findVectorFeature(map, pixel, layerToQuery);
+                layersToQuery.vectorLayers.forEach(function(olLayer) {
+                  var feature = findVectorFeature(map, pixel, olLayer);
                   if (feature) {
-                    showVectorFeature(feature, layerToQuery);
+                    showVectorFeature(feature, olLayer);
+                  }
+                });
+                layersToQuery.vectorTileLayers.forEach(function(olLayer) {
+                  var feature = findVectorFeature(map, pixel, olLayer);
+                  if (feature) {
+                    showVectorTileFeature(feature, olLayer);
                   }
                 });
               }
@@ -542,6 +556,50 @@ goog.require('ga_topic_service');
               feature.set('htmlpopup', htmlpopup);
               feature.set('layerId', layerId);
               showFeatures([feature]);
+              // Iframe communication from inside out
+              if (top != window) {
+               if (featureId && layerId) {
+                  window.parent.postMessage(id, '*');
+                }
+              }
+            };
+
+            var showVectorTileFeature = function(feature, layer) {
+              var row;
+              var rows = '';
+              var layerId = layer.id;
+              var properties = feature.getProperties();
+              var featureId = properties.id;
+              var id = layerId + '#' + featureId;
+              for (var k in properties) {
+                if (k !== 'geometry') {
+                  row = '<tr><td>{{key}}</td><td>{{value}}</td></tr>';
+                  row = row.
+                      replace('{{key}}', k).
+                      replace('{{value}}', properties[k]);
+                  rows += row;
+                }
+              }
+              rows = '<table>' + rows + '</table>';
+              var htmlpopup =
+                '<div id="{{id}}" class="htmlpopup-container">' +
+                  '<div class="htmlpopup-header">' +
+                    '<span>' + layer.id + ' &nbsp;</span>' +
+                    layer.id +
+                '</div>' +
+                '<div class="htmlpopup-content">' +
+                  rows +
+                '</div>' +
+              '</div>';
+              htmlpopup = htmlpopup.replace('{{id}}', id);
+              var featureCopy = new ol.Feature();
+              featureCopy.set('htmlpopup', htmlpopup);
+              featureCopy.set('layerId', layerId);
+              // Coordinates are in local tile system
+              // Geometries are probably cut as well
+              // We would need the tile extent and the pixel ratio to determine
+              // the real coordinates and provide a highlight
+              showFeatures([featureCopy]);
               // Iframe communication from inside out
               if (top != window) {
                if (featureId && layerId) {

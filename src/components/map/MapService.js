@@ -31,6 +31,12 @@ goog.require('ga_urlutils_service');
           origin: origin,
           resolutions: resolutions
         });
+      } else if (type == 'mvt') {
+        return new ol.tilegrid.TileGrid({
+          origin: origin,
+          extent: [420000, 30000, 900000, 350000],
+          resolutions: resolutions.slice(0, 24)
+        });
       }
       return new ol.tilegrid.WMTS({
           matrixIds: $.map(resolutions, function(r, i) { return i + ''; }),
@@ -523,6 +529,25 @@ goog.require('ga_urlutils_service');
                 attributionUrl: 'http://www.swisstopo.admin.ch/internet/' +
                     'swisstopo/' + lang + '/home.html'
               };
+              // MVT hardcored config for now
+              response.data['ch.swisstopo.' +
+                  'swissboundaries3d-gemeinde-flaeche.fill'] = {
+                type: 'mvt',
+                serverLayerName: 'swissboundaries3d-gemeinde-flaeche.fill',
+                selectbyrectangle: false,
+                tooltip: true,
+                highlightable: false, // At least of now
+                background: false,
+                searchable: false,
+                serverLayerName: 'ch.swisstopo.' +
+                    'swissboundaries3d-gemeinde-flaeche.fill',
+                attributionUrl: 'http://www.swisstopo.admin.ch/internet/' +
+                    'swisstopo/fr/home.html',
+                label: 'Limites de commune',
+                timestamps: ['current'],
+                hasLegend: true,
+                timeEnabled: false
+              };
             }
             if (!layers) { // First load
               layers = response.data;
@@ -835,6 +860,26 @@ goog.require('ga_urlutils_service');
             if (!layer.updateDelay) {
               setLayerSource();
             }
+          } else if (layer.type == 'mvt') {
+            var url = 'https://vectortiles.dev.bgdi.ch/2.1.0/' +
+                'ch.swisstopo.swissboundaries3d-gemeinde-flaeche.fill/' +
+                '21781/default/current/{z}/{x}/{y}.pbf';
+            // Using featureClass ol.Feature slows down the rendering but
+            // gives use access to the geometry
+            // Defaults to ol.render.Feature
+            olSource = new ol.source.VectorTile({
+              // format: new ol.format.MVT({
+              //   featureClass: ol.Feature
+              // }),
+              format: new ol.format.MVT(),
+              tileGrid: gaTileGrid.get(layer.resolutions,
+                  layer.minResolution, 'mvt'),
+              tilePixelRatio: 16,
+              url: url
+            });
+            olLayer = new ol.layer.VectorTile({
+              source: olSource
+            });
           }
           if (angular.isDefined(olLayer)) {
             gaDefinePropertiesForLayer(olLayer);
@@ -1389,11 +1434,10 @@ goog.require('ga_urlutils_service');
 
         /**
          * Tests if a layer is vector layer.
-         * Note: we ingnore tiles vector layers for now,
          * @param {ol.layer.Base} an ol layer.
          *
-         * Returns true if the layer is a Vector
-         * Returns false if the layer is not a Vector
+         * Returns true if the layer is a Vector or VectorTile
+         * Returns false if the layer is not a Vector or VectorTile
          */
         isVectorLayer: function(olLayer) {
           return !!(olLayer && !(olLayer instanceof ol.layer.Group) &&
@@ -1401,6 +1445,18 @@ goog.require('ga_urlutils_service');
               (olLayer instanceof ol.layer.Vector ||
               (olLayer instanceof ol.layer.Image &&
               olLayer.getSource() instanceof ol.source.ImageVector)));
+        },
+
+        /**
+         * Tests if a layer is a tiled vector layer.
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns true if the layer is a VectorTile
+         * Returns false if the layer is a VectorTile
+         */
+        isVectorTileLayer: function(olLayer) {
+          return !!(olLayer && !(olLayer instanceof ol.layer.Group) &&
+              olLayer.getSource() && olLayer instanceof ol.layer.VectorTile);
         },
 
         /**
