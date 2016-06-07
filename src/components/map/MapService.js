@@ -854,7 +854,6 @@ goog.require('ga_urlutils_service');
           return olLayer;
         };
 
-
         /**
          * Returns layers definition for given bodId. Returns
          * undefined if bodId does not exist
@@ -923,6 +922,58 @@ goog.require('ga_urlutils_service');
           }
 
           return undefined;
+        };
+
+        /**
+         * Determine if the layer is a bod layer.
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns true if the layer is a BOD layer.
+         * Returns false if the layer is not a BOD layer.
+         */
+        this.isBodLayer = function(olLayer) {
+          if (olLayer) {
+            var bodId = olLayer.bodId;
+            return layers.hasOwnProperty(bodId);
+          }
+          return false;
+        };
+
+        /**
+         * Find the parent layer bodid if the layer is a child.
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns a bodId of the parent layer.
+         * Returns undefined if no parent layer was found
+         */
+        this.getBodParentLayerId = function(olLayer) {
+          if (this.isBodLayer(olLayer)) {
+            var bodId = olLayer.bodId;
+            return this.getLayerProperty(bodId,
+                'parentLayerId');
+          }
+        };
+
+        /**
+         * Determine if the bod layer has a tooltip at the moment.
+         * Note: the layer is considered to have a tooltip if the parent layer
+         * has a tooltip.
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns true if the layer has bod a tooltip.
+         * Returns false if the layer doesn't have a bod tooltip.
+         */
+        this.hasTooltipBodLayer = function(olLayer) {
+          if (!this.isBodLayer(olLayer)) {
+            return false;
+          }
+          var hasTooltip;
+          var parentLayerId = this.getBodParentLayerId(olLayer);
+          var bodId = parentLayerId || olLayer.bodId;
+          if (bodId) {
+            hasTooltip = this.getLayerProperty(bodId, 'tooltip');
+          }
+          return !!(bodId && hasTooltip);
         };
       };
 
@@ -1214,14 +1265,12 @@ goog.require('ga_urlutils_service');
         // or permalink
         // @param olLayerOrId  An ol layer or an id of a layer
         isExternalWmsLayer: function(olLayerOrId) {
-          if (!olLayerOrId) {
-            return false;
-          }
           if (angular.isString(olLayerOrId)) {
             return /^WMS\|\|/.test(olLayerOrId) &&
                 olLayerOrId.split('||').length >= 4;
+          } else {
+            return this.isWMSLayer(olLayerOrId);
           }
-          return olLayerOrId.type == 'WMS';
         },
 
         // Test if a feature is a measure
@@ -1336,6 +1385,36 @@ goog.require('ga_urlutils_service');
             });
             return sourceExtent;
           }
+        },
+
+        /**
+         * Tests if a layer is vector layer.
+         * Note: we ingnore tiles vector layers for now,
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns true if the layer is a Vector
+         * Returns false if the layer is not a Vector
+         */
+        isVectorLayer: function(olLayer) {
+          return !!(olLayer && !(olLayer instanceof ol.layer.Group) &&
+              olLayer.getSource() &&
+              (olLayer instanceof ol.layer.Vector ||
+              (olLayer instanceof ol.layer.Image &&
+              olLayer.getSource() instanceof ol.source.ImageVector)));
+        },
+
+        /**
+         * Tests if a layer is a WMS layer
+         * @param {ol.layer.Base} an ol layer.
+         *
+         * Returns true if the layer is a WMS
+         * Returns false if the layer is not a WMS
+         */
+        isWMSLayer: function(olLayer) {
+          return !!(olLayer && !(olLayer instanceof ol.layer.Group) &&
+              olLayer.getSource &&
+              (olLayer.getSource() instanceof ol.source.ImageWMS ||
+              olLayer.getSource() instanceof ol.source.TileWMS));
         }
       };
     };
