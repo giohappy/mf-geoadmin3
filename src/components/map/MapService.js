@@ -925,7 +925,7 @@ goog.require('ga_urlutils_service');
         };
 
         /**
-         * Determine if the layer is a bod layer.
+         * Determines if the layer is a bod layer.
          * @param {ol.layer.Base} an ol layer.
          *
          * Returns true if the layer is a BOD layer.
@@ -940,7 +940,7 @@ goog.require('ga_urlutils_service');
         };
 
         /**
-         * Find the parent layer bodid if the layer is a child.
+         * Finds the parent layer bodid if the layer is a child.
          * @param {ol.layer.Base} an ol layer.
          *
          * Returns a bodId of the parent layer.
@@ -955,7 +955,7 @@ goog.require('ga_urlutils_service');
         };
 
         /**
-         * Determine if the bod layer has a tooltip at the moment.
+         * Determines if the bod layer has a tooltip.
          * Note: the layer is considered to have a tooltip if the parent layer
          * has a tooltip.
          * @param {ol.layer.Base} an ol layer.
