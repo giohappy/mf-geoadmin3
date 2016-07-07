@@ -70,7 +70,7 @@ goog.require('ga_urlutils_service');
    */
   module.provider('gaDefinePropertiesForLayer', function() {
 
-    this.$get = function() {
+    this.$get = function($timeout) {
       return function defineProperties(olLayer) {
         olLayer.set('altitudeMode', 'clampToGround');
         Object.defineProperties(olLayer, {
@@ -172,6 +172,70 @@ goog.require('ga_urlutils_service');
             },
             set: function(val) {
               this.set('timestamps', val);
+            }
+          },
+          retry: {
+            get: function() {
+              return this.get('retry');
+            },
+            set: function(val) {
+              // If true, we establish the retry callbacks
+              var deregFailed = this.get('deregFailed');
+              var deregRefresh = this.get('deregRefresh');
+              var loaderror, loadsuccess, loadel = 'tile';
+              var RETRIES_INTERVAL = 5000;
+              var MAX_RETRIES = 3;
+              if (val &&
+                  (this instanceof ol.layer.Tile ||
+                   this instanceof ol.layer.Image)) {
+                var src = this.getSource();
+                if (src instanceof ol.source.WMTS ||
+                    src instanceof ol.source.TileWMS) {
+                  loaderror = 'tileloaderror';
+                  loadsuccess = 'tileloadend';
+                } else if (src instanceof ol.source.ImageWMS) {
+                  loaderror = 'imageloaderror';
+                  loadsuccess = 'imageloadend';
+                  loadel = 'image';
+                }
+
+                if (loaderror && !deregFailed && !deregRefresh) {
+                  deregFailed = src.on(loaderror, function(evt) {
+                    if (evt[loadel]._retries == undefined) {
+                      evt[loadel]._retries = 0;
+                    }
+                    evt[loadel]._retries++;
+                    if (evt[loadel]._retries <= MAX_RETRIES) {
+                      $timeout(function() {
+                        evt[loadel].state = 0;
+                        evt[loadel].load();
+                      }, RETRIES_INTERVAL * evt[loadel]._retries, false);
+                    }
+                  });
+
+                  deregRefresh = src.on(loadsuccess, function(evt) {
+                    if (evt[loadel]._retries) {
+                      evt[loadel]._retries = 0;
+                      this.changed();
+                    }
+                  });
+
+                  this.set('deregFailed', deregFailed);
+                  this.set('deregRefresh', deregRefresh);
+                }
+
+              } else {
+                // Remove the retry callbacks
+                if (deregFailed) {
+                  src.unByKey(deregFailed);
+                  this.set('deregFailed', undefined);
+                }
+                if (deregRefresh) {
+                  src.unByKey(deregRefresh);
+                  this.set('deregRefresh', undefined);
+                }
+              }
+              this.set('retry', val);
             }
           },
           time: {
@@ -377,12 +441,11 @@ goog.require('ga_urlutils_service');
         gaStylesFromLiterals, gaGlobalOptions, gaPermalink, 
         gaLang, gaTime) {
 
-      var MAX_RETRIES = 100;
+      var MAX_RETRIES = 5;
       var RETRIES_INTERVAL = 5000;
 
       var retryOnError = function(msg, el, olsource) {
-        if (angular.isDefined(msg) &&
-            angular.isDefined(olsource)) {
+        if (msg && olsource) {
           olsource.on(msg, function(event) {
             if (event[el]._retries == undefined) {
               event[el]._retries = 0;
@@ -392,7 +455,7 @@ goog.require('ga_urlutils_service');
               $timeout(function() {
                 event[el].state = 0;
                 event[el].load();
-              }, RETRIES_INTERVAL);
+              }, RETRIES_INTERVAL * event[el]._retries, false);
             }
           });
         }
@@ -405,9 +468,7 @@ goog.require('ga_urlutils_service');
          * tile is successfully loaded. Otherwise, it's drawn only
          * when the map is refreshed in other ways
          */
-        if (angular.isDefined(msg) &&
-            angular.isDefined(olsource) &&
-            angular.isDefined(ollayer)) {
+        if (msg && olsource && ollayer) {
           olsource.on(msg, function(event) {
             if (event[el]._retries) {
               ollayer.changed();
@@ -897,9 +958,10 @@ goog.require('ga_urlutils_service');
             olLayer.getCesiumImageryProvider = function() {
               return that.getCesiumImageryProviderById(bodId);
             };
+            olLayer.retry = true;
           }
-          retryOnError(loaderror, loadel, olSource);
-          refreshAfterRetry(loadsuccess, loadel, olSource, olLayer);
+          //retryOnError(loaderror, loadel, olSource);
+          //refreshAfterRetry(loadsuccess, loadel, olSource, olLayer);
           return olLayer;
         };
 
