@@ -70,7 +70,7 @@ goog.provide('ga_stylesfromliterals_service');
           var basicStyles = getOlBasicStyles(style);
           var olImage = angular.extend({}, style, basicStyles);
           delete olImage.label;
-          olImage = getOlStyleForPoint(basicStyles, style.type);
+          olImage = getOlStyleForPoint(olImage, style.type);
           olStyles.image = olImage;
           olStyles.text = olText;
         } else {
@@ -117,6 +117,8 @@ goog.provide('ga_stylesfromliterals_service');
 
       var olStyleForPropertyValue = function(properties) {
         this.singleStyle = null;
+
+        this.defaultVal = 'defaultVal';
 
         this.styles = {
           point: {},
@@ -170,6 +172,10 @@ goog.provide('ga_stylesfromliterals_service');
 
       olStyleForPropertyValue.prototype.pushOrInitialize_ = function(
           geomType, key, styleSpec) {
+        // Happens when styling is only resolution dependent (unique type only)
+        if (key === undefined) {
+          key = this.defaultVal;
+        }
         if (!this.styles[geomType][key]) {
           this.styles[geomType][key] = [styleSpec];
         } else {
@@ -217,8 +223,13 @@ goog.provide('ga_stylesfromliterals_service');
           }
           return this.singleStyle.olStyle;
         } else if (this.type === 'unique') {
+          var value;
           var properties = feature.getProperties();
-          var value = properties[this.key];
+          if (this.key !== undefined) {
+            value = properties[this.key];
+          } else {
+            value = this.defaultVal;
+          }
           var geomType = getGeomTypeFromGeometry(feature.getGeometry());
           var olStyles = this.styles[geomType][value];
           var res = this.getOlStyleForResolution_(olStyles, resolution);
