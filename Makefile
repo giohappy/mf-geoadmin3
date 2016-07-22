@@ -213,19 +213,19 @@ deployprod: guard-SNAPSHOT
 .PHONY: s3builddeploydev
 s3builddeploydev: prd/cache/ .build-artefacts/requirements.timestamp
 	source rc_dev && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
-	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	source rc_dev && ${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
 	rm -rf ${CLONEDIR} ;
 
 .PHONY: s3builddeployint
 s3builddeployint: prd/cache/ .build-artefacts/requirements.timestamp
 	source rc_int && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
-	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	source rc_int && ${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
 	rm -rf ${CLONEDIR} ;
 
 .PHONY: s3builddeployprod
 s3builddeployprod: prd/cache/ .build-artefacts/requirements.timestamp
 	source rc_prod && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
-	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	source rc_prod && ${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
 	rm -rf ${CLONEDIR} ;
 
 .PHONY: s3list
@@ -400,7 +400,7 @@ prd/info.json: src/info.mako.json
 	${MAKO_CMD} \
 		--var "version=$(VERSION)" \
 		--var "api_url=$(API_URL)" \
-	  --var "print_url=$(PRINT_URL)" \
+		--var "print_url=$(PRINT_URL)" \
 		--var "mapproxy_url=$(MAPPROXY_URL)" \
 		--var "user_name=$(USER_NAME)" \
 		--var "git_branch=$(GIT_BRANCH)" \
