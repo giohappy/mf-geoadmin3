@@ -3,7 +3,7 @@ SRC_JS_FILES := $(shell find src/components src/js -type f -name '*.js')
 SRC_JS_FILES_FOR_COMPILER = $(shell sed -e ':a' -e 'N' -e '$$!ba' -e 's/\n/ --js /g' .build-artefacts/js-files | sed 's/^.*base\.js //')
 SRC_LESS_FILES := $(shell find src -type f -name '*.less')
 SRC_COMPONENTS_PARTIALS_FILES := $(shell find src/components -type f -path '*/partials/*' -name '*.html')
-PYTHON_FILES := $(shell find test/saucelabs -type f -name "*.py" -print)
+PYTHON_FILES := $(shell find scripts test/saucelabs -type f -name "*.py" -print)
 APACHE_BASE_DIRECTORY ?= $(CURDIR)
 LAST_APACHE_BASE_DIRECTORY := $(shell if [ -f .build-artefacts/last-apache-base-directory ]; then cat .build-artefacts/last-apache-base-directory 2> /dev/null; else echo '-none-'; fi)
 APACHE_BASE_PATH ?= /$(shell id -un)
@@ -41,6 +41,7 @@ DEFAULT_TOPIC_ID ?= ech
 TRANSLATION_FALLBACK_CODE ?= de
 LANGUAGES ?= '[\"de\", \"en\", \"fr\", \"it\", \"rm\"]'
 LANGS ?= de fr it rm en
+HTMLFILES ?= index mobile embed
 TRANSLATE_GSPREAD_KEYS ?= 1F3R46w4PODfsbJq7jd79sapy3B7TXhQcYM7SEaccOA0
 TRANSLATE_CSV_FILES ?= "https://docs.google.com/spreadsheets/d/1F3R46w4PODfsbJq7jd79sapy3B7TXhQcYM7SEaccOA0/export?format=csv&gid=0"
 TRANSLATE_EMPTY_JSON ?= src/locales/empty.json
@@ -56,6 +57,13 @@ DEFAULT_ELEVATION_MODEL ?= COMB
 DEFAULT_TERRAIN ?= ch.swisstopo.terrain.3d
 SAUCELABS_TESTS ?=
 USER_SOURCE ?= rc_user
+USER_NAME ?= $(shell id -un)
+GIT_COMMIT_HASH ?= $(shell git rev-parse --verify HEAD)
+GIT_COMMIT_DATE ?= $(shell git log -1  --date=iso --pretty=format:%cd)
+CURRENT_DATE ?= $(shell date -u +"%Y-%m-%d %H:%M:%S %z")
+TIMESTAMP := $(shell /bin/date "+%s")
+DEPLOY_GIT_BRANCH ?= master
+CLONEDIR ?=/home/$(USER_NAME)/tmp/delete_me/$(TIMESTAMP)
 
 ## Python interpreter can't have space in path name
 ## So prepend all python scripts with python cmd
@@ -92,14 +100,10 @@ help:
 	@echo "- fixrights          Fix rights in common folder"
 	@echo "- clean              Remove generated files"
 	@echo "- cleanall           Remove all the build artefacts"
-	@echo "- deploydev          Deploys current github master to dev. Specify SNAPSHOT=true to create snapshot as well."
-	@echo "- deployint          Deploys snapshot specified with SNAPSHOT=xxx to int."
-	@echo "- deployprod         Deploys snapshot specified with SNAPSHOT=xxx to prod."
-	@echo "- deploydemo         Deploys snapshot specified with SNAPSHOT=xxx to demo."
-	@echo "- deletebranch       List deployed branches or delete a deployed branch (BRANCH_TO_DELETE=...)"
-	@echo "- deploybranch       Deploys current branch to test (note: takes code from github)"
-	@echo "- deploybranchint    Deploys current branch to test and int (note: takes code from github)"
-	@echo "- deploybranchdemo   Deploys current branch to test and demo (note: takes code from github)"
+	@echo "- s3builddeploydev   Build branch DEPLOY_GIT_BRANCH (default to 'master') to dev and deploy to S3"
+	@echo "- s3builddeployint   Build branch DEPLOY_GIT_BRANCH (default to 'master') to int and deploy to S3"
+	@echo "- s3builddeployprod  Build branch DEPLOY_GIT_BRANCH (default to 'master') to prod and deploy to S3"
+	@echo "- s3list             List availables branches, revision and build on the deploy bucket. Usage: DEPLOY_TARGET=infra make s3list"
 	@echo "- ol3cesium          Update ol3cesium.js, ol3cesium-debug.js, Cesium.min.js and Cesium folder"
 	@echo "- libs               Update js librairies used in index.html, see npm packages defined in section 'dependencies' of package.json"
 	@echo "- translate          Generate the translation files (requires db user pwd in ~/.pgpass: dbServer:dbPort:*:dbUser:dbUserPwd)"
@@ -115,6 +119,13 @@ help:
 	@echo "- WMS_URL Service URL         (build with  $(LAST_WMS_URL), current value: $(WMS_URL))"
 	@echo "- APACHE_BASE_PATH Base path  (build with: $(LAST_APACHE_BASE_PATH), current value: $(APACHE_BASE_PATH))"
 	@echo "- APACHE_BASE_DIRECTORY       (build with: $(LAST_APACHE_BASE_DIRECTORY), current value: $(APACHE_BASE_DIRECTORY))"
+	@echo "- SNAPSHOT                    (current value: $(SNAPSHOT))"
+	@echo "- GIT_BRANCH                  (current value: $(GIT_BRANCH))"
+	@echo "- GIT_COMMIT_HASH             (current value: $(GIT_COMMIT_HASH))"
+	@echo "- VERSION                     (build with: $(LAST_VERSION), current value: $(VERSION))"
+	@echo "- S3_MF_GEOADMIN3_DEV         (current value: $(S3_MF_GEOADMIN3_DEV))"
+	@echo "- S3_MF_GEOADMIN3_INT         (current value: $(S3_MF_GEOADMIN3_INT))"
+	@echo "- S3_MF_GEOADMIN3_PROD        (current value: $(S3_MF_GEOADMIN3_PROD))"
 
 	@echo
 
@@ -139,6 +150,7 @@ release: .build-artefacts/devlibs \
 	prd/locales/ \
 	prd/checker \
 	prd/cache/ \
+	prd/info.json \
 	prd/robots.txt
 
 .PHONY: debug
@@ -197,6 +209,28 @@ deployint: guard-SNAPSHOT
 .PHONY: deployprod
 deployprod: guard-SNAPSHOT
 	./scripts/deploysnapshot.sh $(SNAPSHOT) prod $(DEPLOYCONFIG)
+
+.PHONY: s3builddeploydev
+s3builddeploydev: prd/cache/ .build-artefacts/requirements.timestamp
+	source rc_dev && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
+	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	rm -rf ${CLONEDIR} ;
+
+.PHONY: s3builddeployint
+s3builddeployint: prd/cache/ .build-artefacts/requirements.timestamp
+	source rc_int && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
+	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	rm -rf ${CLONEDIR} ;
+
+.PHONY: s3builddeployprod
+s3builddeployprod: prd/cache/ .build-artefacts/requirements.timestamp
+	source rc_prod && ./scripts/clonebuild.sh ${CLONEDIR} || (echo "Cloning and building failed $$?"; exit 1); \
+	${PYTHON_CMD} ./scripts/s3manage.py upload ${DEPLOY_TARGET} ${CLONEDIR}/mf-geoadmin3 && rm -rf ${CLONEDIR}  || \
+	rm -rf ${CLONEDIR} ;
+
+.PHONY: s3list
+s3list: .build-artefacts/requirements.timestamp
+	@ ${PYTHON_CMD} ./scripts/s3manage.py list $(DEPLOY_TARGET);
 
 .PHONY: deploybranch
 deploybranch: deploy/deploy-branch.cfg $(DEPLOY_ROOT_DIR)/$(GIT_BRANCH)/.git/config
@@ -346,7 +380,7 @@ prd/geoadmin.appcache: src/geoadmin.mako.appcache \
 			.build-artefacts/last-version
 	rm -f prd/*.appcache
 	mkdir -p $(dir $@);
-	${PYTHON_CMD} ${MAKO_CMD} \
+	${MAKO_CMD} \
 	    --var "version=$(VERSION)" \
 	    --var "deploy_target=$(DEPLOY_TARGET)" \
 	    --var "apache_base_path=$(APACHE_BASE_PATH)" \
@@ -360,7 +394,20 @@ prd/cache/: .build-artefacts/last-version \
 			.build-artefacts/last-api-url
 	mkdir -p $@
 	curl -q -o prd/cache/services http:$(API_URL)/rest/services
-	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang) http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
+	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang).json http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
+
+prd/info.json: src/info.mako.json
+	${MAKO_CMD} \
+		--var "version=$(VERSION)" \
+		--var "api_url=$(API_URL)" \
+	  --var "print_url=$(PRINT_URL)" \
+		--var "mapproxy_url=$(MAPPROXY_URL)" \
+		--var "user_name=$(USER_NAME)" \
+		--var "git_branch=$(GIT_BRANCH)" \
+		--var "git_commit_date=$(GIT_COMMIT_DATE)" \
+		--var "git_commit_hash=$(GIT_COMMIT_HASH)" \
+		--var "build_date=$(CURRENT_DATE)"  $< > $@
+
 
 define buildpage
 	${PYTHON_CMD} ${MAKO_CMD} \

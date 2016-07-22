@@ -77,6 +77,7 @@ You can also use an argument to test a new version of ol3, for instance you can 
     OL3_CESIUM_VERSION=10c5fcf1565ffdb484c4ef4e42835142f8f45e67 \
     CESIUM_VERSION=3e3cf938786ee48b4b376ed932904541d798671d ol3cesium
 
+
 Remember to update the API and API doc at the same time to keep coherency.
 
 # Automated tests
@@ -162,6 +163,40 @@ If you want to use the deploy configuration of directory from which you are exec
 `make deployint SNAPSHOT=201512011411 DEPLOYCONFIG=from_current_directory`
 
 Note: we should NOT manually adapt code in /var/www/vhosts/mf-geoadmin3 directory
+
+
+## Building and deploying to AWS S3
+
+The three technical hostnames:
+
+* mf-geoadmin.dev.bgdi.ch
+* mf-geoadmin.int.bgdi.ch
+* mf-geoadmin.prod.bgdi.ch
+
+are pointing on the same bucket, defined by S3_MF_GEOADMIN3_PROD, their values defines what backends
+the application will use (See [PR 3402]](https://github.com/geoadmin/mf-geoadmin3/pull/3402)).
+
+
+To build a branch/hash of mf-geoadmin3 and upload the result to AWS S3, 
+
+    DEPLOY_GIT_BRANCH=my_branch DEPLOY_GIT_HASH=656e343 make s3builddeploy
+    
+By default, DEPLOY_GIT_HASH refers to HEAD version, and DEPLOY_GIT_BRANCH to 'master'.
+
+If the project builds and the tests are passing, then, files will be uploaded to a directory:
+
+    <DEPLOY_GIT_BRANCH>/<DEPLOY_GIT_HASH>/<EPOCH_BUILD>/
+
+For instance:
+
+    mom_layersconfig_lang/75098c2/1468688399/index.html
+    
+and for source:
+    
+    mom_layersconfig_lang/75098c2/1468688399/src/index.html
+    
+    
+Metadata to a build are available next to the index.html, as info.json
 
 ## Deploying a branch
 
