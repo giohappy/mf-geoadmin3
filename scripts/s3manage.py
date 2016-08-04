@@ -19,7 +19,7 @@ import mimetypes
 def usage():
     print(dedent('''\
         Manage map.geo.admin.ch versions in AWS S3 bucket. Please make sure all your env variables are set.
-        (namely S3_MF_GEOADMIN3_INFRA and DEPLOY_TARGET)
+        (namely S3_MF_GEOADMIN3_INFRA)
 
         Usage:
 
@@ -30,7 +30,7 @@ def usage():
             upload: Upload content of /prd (and /src) directory to a bucket.
                     You may specify a directory (it defaults to current).
 
-                    Example: python scripts/s3manage.py <deploy_target> <snapshotdir>
+                    Example: python scripts/s3manage.py <snapshotdir>
 
             list:   List available <version> in a bucket.
 
@@ -38,11 +38,11 @@ def usage():
 
             info:   Print the info.json file.
 
-                    Example: python scripts/s3manage.py info <deploy_target>/<branch_name>/<sha>/<version>
+                    Example: python scripts/s3manage.py info <branch_name>/<sha>/<version>
 
             delete: Delete an existing project.
 
-                    Example: python scripts/s3manage.py delete <deploy_target>/<branch_name>/<sha>/<version>
+                    Example: python scripts/s3manage.py delete <branch_name>/<sha>/<version>
     '''))
 
 
@@ -50,6 +50,9 @@ mimetypes.init()
 mimetypes.add_type('application/x-font-ttf', '.ttf')
 mimetypes.add_type('application/x-font-opentype', '.otf')
 mimetypes.add_type('application/vnd.ms-fontobject', '.eot')
+mimetypes.add_type('application/json', '.json')
+mimetypes.add_type('text/cache-manifest', '.appcache')
+mimetypes.add_type('text/plain', '.txt')
 
 NO_COMPRESS = [
     'image/png',
@@ -175,11 +178,11 @@ def get_index_version(c):
     return version
 
 
-def create_s3_dir_path(target, base_dir):
+def create_s3_dir_path(base_dir):
     git_short_sha = local_git_last_commit(base_dir)[:7]
     git_branch = local_git_branch(base_dir)
     version = local_last_version(base_dir).strip()
-    return (os.path.join(target, git_branch, git_short_sha, version), version)
+    return (os.path.join(git_branch, git_short_sha, version), version)
 
 
 def is_cached(file_name):
@@ -191,12 +194,8 @@ def is_cached(file_name):
 
 
 def get_file_mimetype(local_file):
-    if local_file.endswith('.json') or local_file.endswith('services'):
+    if local_file.endswith('services'):
         return 'application/json'
-    elif local_file.endswith('.appcache'):
-        return 'text/cache-manifest'
-    elif local_file.endswith('.txt'):
-        return 'text/plain'
     else:
         mimetype, _ = mimetypes.guess_type(local_file)
         if mimetype:
@@ -204,14 +203,11 @@ def get_file_mimetype(local_file):
         return 'text/plain'
 
 
-def upload(bucket_name, target, base_dir):
-    s3_dir_path, version = create_s3_dir_path(target, base_dir)
+def upload(bucket_name, base_dir):
+    s3_dir_path, version = create_s3_dir_path(base_dir)
     print('Destionation folder is:')
     print('%s' % s3_dir_path)
-
-    upload_directories = ['prd']
-    if target != 'prod':
-        upload_directories.append('src')
+    upload_directories = ['prd', 'src']
     exclude_filename_patterns = ['.less', '.gitignore', '.mako.']
 
     for directory in upload_directories:
@@ -246,15 +242,53 @@ def upload(bucket_name, target, base_dir):
     print('Upload completed at %s%s/index.html' % (url_to_check, s3_dir_path))
 
 
-def version_exists(version):
-    files = bucket.objects.filter(Prefix=str(version)).all()
-    return len(list(files)) > 0
+def get_head_sha(branch):
+    b = branch.replace('/', '')
+    try:
+        resp = urllib2.urlopen(
+            'https://api.github.com/repos/geoadmin/mf-geoadmin3/commits?sha=%s' % b)
+        data = json.load(resp)
+    except urllib2.HTTPError:
+        data = None
+        print('Branch %s not found.' % b)
+    if data:
+        return data[0]['sha']
 
 
-def get_version_info(version):
-    print('App version is: %s' % version)
-    version_target = version.split('/')[3]
-    obj = s3.Object(bucket.name, '%s/%s/info.json' % (version, version_target))
+def list_version(bucket):
+    branches = bucket.meta.client.list_objects(Bucket=bucket.name,
+                                               Delimiter='/')
+    for b in branches.get('CommonPrefixes'):
+        head_sha = None
+        branch = b.get('Prefix')
+        if re.search(r'^\D', branch):
+            shas = bucket.meta.client.list_objects(Bucket=bucket.name,
+                                                   Prefix=branch,
+                                                   Delimiter='/')
+            for s in shas.get('CommonPrefixes'):
+                sha = s.get('Prefix')
+                nice_sha = sha.replace(branch, '').replace('/', '')
+
+                if head_sha is None:
+                    head_sha = get_head_sha(branch)
+                    if head_sha:
+                        is_head = 'HEAD' if nice_sha in head_sha else 'NOT HEAD'
+
+                if head_sha:
+                    print(branch)
+                    print('  {} - {} ({})'.format(nice_sha, is_head, head_sha))
+                    builds = bucket.meta.client.list_objects(Bucket=bucket.name,
+                                                             Prefix=sha,
+                                                             Delimiter='/')
+                    for v in builds.get('CommonPrefixes'):
+                        build = v.get('Prefix')
+                        print('    ' + build.replace(sha, ''))
+
+
+def get_version_info(s3_path):
+    print('App version is: %s' % s3_path)
+    version_target = s3_path.split('/')[2]
+    obj = s3.Object(bucket.name, '%s/%s/info.json' % (s3_path, version_target))
     try:
         content = obj.get()["Body"].read()
         raw = _unzip_data(content)
@@ -266,70 +300,39 @@ def get_version_info(version):
     return data
 
 
-def get_head_sha(branch):
-    resp = urllib2.urlopen(
-        'https://api.github.com/repos/geoadmin/mf-geoadmin3/commits?sha={}'.format(branch.replace('/', '')))
-    data = json.load(resp)
-    return data[0]['sha']
-
-
-def list_version(bucket):
-    envs = bucket.meta.client.list_objects(Bucket=bucket.name,
-                                           Delimiter='/')
-    for o in envs.get('CommonPrefixes'):
-        env = o.get('Prefix')
-        branches = bucket.meta.client.list_objects(Bucket=bucket.name,
-                                                   Prefix=env,
-                                                   Delimiter='/')
-        for b in branches.get('CommonPrefixes'):
-            head_sha = None
-            branch = b.get('Prefix')
-            if re.search(r'^\D', branch):
-                shas = bucket.meta.client.list_objects(Bucket=bucket.name,
-                                                       Prefix=branch,
-                                                       Delimiter='/')
-                for s in shas.get('CommonPrefixes'):
-                    sha = s.get('Prefix')
-                    nice_sha = sha.replace(branch, '').replace('/', '')
-
-                    if head_sha is None:
-                        branch_name = branch.replace(env, '')
-                        head_sha = get_head_sha(branch_name)
-                        is_head = 'HEAD' if nice_sha in head_sha else 'NOT HEAD'
-                    print(branch)
-                    print('  {} - {} ({})'.format(nice_sha, is_head, head_sha))
-                    builds = bucket.meta.client.list_objects(Bucket=bucket.name,
-                                                             Prefix=sha,
-                                                             Delimiter='/')
-                    for v in builds.get('CommonPrefixes'):
-                        build = v.get('Prefix')
-                        print('    ' + build.replace(sha, ''))
-
-
-def version_info(version):
-    info = get_version_info(version)
+def version_info(s3_path):
+    info = get_version_info(s3_path)
     if info is None:
-        print('No info for version %s' % version)
+        print('No info for version %s' % s3_path)
         sys.exit(1)
     for k in info.keys():
         print('%s: %s' % (k, info[k]))
 
 
-def delete_version(version, bucket_name):
-    if version_exists(version) is False:
-        print("Version '{}' does not exists in AWS S3. Aborting".format(version))
+def version_exists(s3_path):
+    files = bucket.objects.filter(Prefix=str(s3_path)).all()
+    return len(list(files)) > 0
+
+
+def delete_version(s3_path, bucket_name):
+    if version_exists(s3_path) is False:
+        print('Version <%s> does not exists in AWS S3. Aborting' % s3_path)
         sys.exit(1)
 
-    files = bucket.objects.filter(Prefix=str(version)).all()
+    msg = raw_input('Are you sure you want to delete all files in <%s>?\n' % s3_path)
+    if msg.lower() in ('y', 'yes'):
+        files = bucket.objects.filter(Prefix=str(s3_path)).all()
 
-    indexes = [{'Key': k.key} for k in files]
-    for n in ('index', 'embed', 'mobile'):
-        src_key_name = '{}.{}.html'.format(n, version)
-        indexes.append({'Key': src_key_name})
+        indexes = [{'Key': k.key} for k in files]
+        for n in ('index', 'embed', 'mobile'):
+            src_key_name = '{}.{}.html'.format(n, s3_path)
+            indexes.append({'Key': src_key_name})
 
-    resp = s3client.delete_objects(Bucket=bucket_name, Delete={'Objects': indexes})
-    for v in resp['Deleted']:
-        print v
+        resp = s3client.delete_objects(Bucket=bucket_name, Delete={'Objects': indexes})
+        for v in resp['Deleted']:
+            print(v)
+    else:
+        print('Aborting deletion of <%s>.' % s3_path)
 
 
 def init_connection(bucket_name, profile_name):
@@ -368,7 +371,7 @@ def parse_arguments():
         usage()
         sys.exit(1)
 
-    if cmd_type == 'upload' and len(sys.argv) < 3:
+    if cmd_type == 'upload' and len(sys.argv) < 2:
         exit_usage(cmd_type)
     elif cmd_type == 'list' and len(sys.argv) != 2:
         exit_usage(cmd_type)
@@ -377,29 +380,24 @@ def parse_arguments():
     elif cmd_type == 'delete' and len(sys.argv) < 3:
         exit_usage(cmd_type)
 
-    target = None
     base_dir = os.getcwd()
-    if cmd_type == 'upload' and len(sys.argv) == 4:
-        base_dir = os.path.abspath(sys.argv[3])
+    if cmd_type == 'upload' and len(sys.argv) == 3:
+        base_dir = os.path.abspath(sys.argv[2])
         if not os.path.isdir(base_dir):
             print('No code found in directory %s' % base_dir)
             sys.exit(1)
-        target = os.environ.get('DEPLOY_TARGET', None)
-        if target not in ['dev', 'int', 'prod']:
-            print('Unknown DEPLOY_TARGET=%s' % target)
-            usage()
-            sys.exit(1)
 
-    if cmd_type == 'info' and len(sys.argv) == 3:
-        target = sys.argv[2]
-        if target.endswith('/'):
-            target = target[:len(target) - 1]
-        if target.count('/') != 3:
+    s3_path = None
+    if cmd_type in ('info', 'delete') and len(sys.argv) == 3:
+        s3_path = sys.argv[2]
+        if s3_path.endswith('/'):
+            s3_path = s3_path[:len(s3_path) - 1]
+        if s3_path.count('/') != 2:
             print('Bad version definition')
             usage()
             sys.exit(1)
 
-    # TODO handle git branch in env
+    # TODO change bucket target
     bucket_name_env = 'S3_MF_GEOADMIN3_INFRA'
     bucket_name = os.environ.get(bucket_name_env)
     if bucket_name is None:
@@ -409,27 +407,27 @@ def parse_arguments():
     user = os.environ.get('USER')
     profile_name = '{}_aws_admin'.format(user)
 
-    return (cmd_type, base_dir, bucket_name, target, profile_name)
+    return (cmd_type, base_dir, bucket_name, s3_path, profile_name)
 
 
 def main():
     global s3, s3client, bucket
-    cmd_type, base_dir, bucket_name, target, profile_name = parse_arguments()
+    cmd_type, base_dir, bucket_name, s3_path, profile_name = parse_arguments()
     s3, s3client, bucket = init_connection(bucket_name, profile_name)
 
     if cmd_type == 'upload':
-        upload(bucket_name, target, base_dir)
+        print('Uploading %s to s3' % base_dir)
+        upload(bucket_name, base_dir)
     elif cmd_type == 'list':
         if len(sys.argv) < 2:
             usage()
             sys.exit(1)
         list_version(bucket)
     elif cmd_type == 'info':
-        version_info(target)
-    elif str(sys.argv[1]) == 'delete' and len(sys.argv) == 3:
-        version = int(sys.argv[2])
-        print("Trying to delete version '{}'".format(version))
-        delete_version(version, bucket_name)
+        version_info(s3_path)
+    elif cmd_type == 'delete':
+        print("Trying to delete version '{}'".format(s3_path))
+        delete_version(s3_path, bucket_name)
     else:
         usage()
 

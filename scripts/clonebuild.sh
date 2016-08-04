@@ -7,26 +7,24 @@ set -o errexit
 
 GIT_CLONE_OPTS=""
 SNAPSHOTDIR=${@:$OPTIND:1}
-GITBRANCH=${@:$OPTIND+1:1}
+DEPLOY_GIT_BRANCH=${@:$OPTIND+1:1}
 
-GITBRANCH=${GITBRANCH:-master}
+DEPLOY_GIT_BRANCH=${DEPLOY_GIT_BRANCH:-master}
 
 if [ ! -d "${SNAPSHOTDIR}" ]; then
     mkdir -p "${SNAPSHOTDIR}"
 fi
 
-echo "Cloning branch=${GITBRANCH}, into directory=${SNAPSHOTDIR}"
+echo "Cloning branch=${DEPLOY_GIT_BRANCH}, into directory=${SNAPSHOTDIR}"
 
 cd ${SNAPSHOTDIR}
 
-git clone ${GIT_CLONE_OPTS} -b ${GITBRANCH}  https://github.com/geoadmin/mf-geoadmin3.git   
+git clone ${GIT_CLONE_OPTS} -b ${DEPLOY_GIT_BRANCH}  https://github.com/geoadmin/mf-geoadmin3.git
 
 cd mf-geoadmin3
 
-echo "Reseting repository to HEAD for branch=${GITBRANCH}"
-git reset --hard origin/$GITBRANCH
+echo "Reseting repository to HEAD for branch=${DEPLOY_GIT_BRANCH}"
+git reset --hard origin/$DEPLOY_GIT_BRANCH
 
 echo "Building the project"
-RC_FILE=rc_${DEPLOY_TARGET}
-source $RC_FILE
 make cleanall all
