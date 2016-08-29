@@ -1,0 +1,17 @@
+diff --git a/src/ol/render/renderfeature.js b/src/ol/render/renderfeature.js
+index 7e16495..e6b93a9 100644
+--- a/src/ol/render/renderfeature.js
++++ b/src/ol/render/renderfeature.js
+@@ -17,6 +17,7 @@ goog.require('ol.geom.GeometryType');
+  *     to be right-handed for polygons.
+  * @param {Array.<number>|Array.<Array.<number>>} ends Ends or Endss.
+  * @param {Object.<string, *>} properties Properties.
++ * @api
+  */
+ ol.render.Feature = function(type, flatCoordinates, ends, properties) {
+ 
+@@ -161,3 +162,4 @@ ol.render.Feature.prototype.getStyleFunction = ol.nullFunction;
+ ol.render.Feature.prototype.getType = function() {
+   return this.type_;
+ };
++goog.exportSymbol('ol.render.Feature', ol.render.Feature);

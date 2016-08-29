@@ -280,6 +280,7 @@ ol3cesium: .build-artefacts/ol3-cesium
 	cat ../../../scripts/ga-ol3-tilegrid.exports >> src/ol/tilegrid/tilegrid.js; \
 	cat ../../../scripts/ga-ol3-tilerange.exports >> src/ol/tilerange.js; \
 	cat ../../../scripts/ga-ol3-view.exports >> src/ol/view.js; \
+	git apply ../../../scripts/renderfeature.patch; \
 	npm install --production; \
 	node tasks/build-ext.js; \
 	cd ../cesium; \
