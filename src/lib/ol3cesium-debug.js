@@ -1,6 +1,6 @@
 // Ol3-Cesium. See https://github.com/openlayers/ol3-cesium/
 // License: https://github.com/openlayers/ol3-cesium/blob/master/LICENSE
-// Version: v1.19-7-g6a621ca
+// Version: v1.20-4-g01f185e
 
 var CLOSURE_NO_DEPS = true;
 // Copyright 2006 The Closure Library Authors. All Rights Reserved.
@@ -40568,7 +40568,7 @@ olcs.OLCesium = function(options) {
   });
 
   var synchronizers = goog.isDef(options.createSynchronizers) ?
-      options.createSynchronizers(this.map_, this.scene_) : [
+      options.createSynchronizers(this.map_, this.scene_, this.dataSourceCollection_) : [
         new olcs.RasterSynchronizer(this.map_, this.scene_),
         new olcs.VectorSynchronizer(this.map_, this.scene_)
       ];
